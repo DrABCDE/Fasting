@@ -1,0 +1,196 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Fasting Timer</title>
+  <style>
+    :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif; }
+    body { margin: 0; padding: 2rem; display: grid; place-items: center; background: #f7f7f7; }
+    .card { background: white; width: min(600px, 90vw); padding: 1.5rem; border-radius: 16px; box-shadow: 0 8px 24px rgba(0,0,0,.08); }
+    h1 { margin: 0 0 0.5rem; font-size: 1.4rem; }
+    .sub { color: #666; margin-bottom: 1.25rem; }
+    .timer { font-size: clamp(2rem, 8vw, 3rem); letter-spacing: 1px; margin: 1rem 0; font-variant-numeric: tabular-nums; }
+    .row { display: flex; gap: .75rem; flex-wrap: wrap; margin: .5rem 0; }
+    button { cursor: pointer; border: 0; padding: .8rem 1rem; border-radius: 12px; background: #111; color: white; font-weight: 600; }
+    button.secondary { background: #e9e9e9; color: #111; }
+    input[type="number"] { width: 6rem; padding: .6rem .7rem; border-radius: 10px; border: 1px solid #ddd; font-size: 1rem; }
+    .meta { color: #444; margin-top: .5rem; }
+    .muted { color: #777; }
+    .bad { color: #b00020; font-weight: 600; }
+    .ok { color: #006d3a; font-weight: 600; }
+    .grid { display: grid; gap: .75rem; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Fasting Timer</h1>
+    <div class="sub">Tap a preset or enter a custom duration, then press Start when you finish eating.</div>
+
+    <div class="row">
+      <button id="preset17">Start 17h</button>
+      <button id="preset16">Start 16h</button>
+      <input type="number" id="customHours" min="1" max="48" step="0.5" placeholder="Hours" />
+      <button id="startCustom">Start custom</button>
+    </div>
+
+    <div class="timer" id="countdown">00:00:00</div>
+    <div class="grid">
+      <div class="meta">Ends at: <span id="endsAt" class="muted">—</span></div>
+      <div class="meta">Status: <span id="status" class="muted">Idle</span></div>
+    </div>
+
+    <div class="row" style="margin-top:1rem;">
+      <button id="pauseResume" class="secondary">Pause</button>
+      <button id="reset" class="secondary">Reset</button>
+      <button id="markOpen">Mark eating window open</button>
+    </div>
+
+    <p class="muted" style="margin-top:1rem;">This works offline and saves state locally. Keep the tab open for a live countdown. If you close it, it will resume from local time on reopen.</p>
+  </div>
+
+<script>
+(function() {
+  const stateKey = 'fastingTimerState.v1';
+  let state = {
+    running: false,
+    paused: false,
+    startTime: null,    // ms epoch
+    endTime: null,      // ms epoch
+    remaining: null     // ms remaining when paused
+  };
+
+  // Try to restore previous state
+  try {
+    const raw = localStorage.getItem(stateKey);
+    if (raw) state = Object.assign(state, JSON.parse(raw));
+  } catch {}
+
+  const el = (id) => document.getElementById(id);
+  const cd = el('countdown');
+  const endsAt = el('endsAt');
+  const status = el('status');
+  const btn17 = el('preset17');
+  const btn16 = el('preset16');
+  const customHours = el('customHours');
+  const btnStartCustom = el('startCustom');
+  const pauseResume = el('pauseResume');
+  const resetBtn = el('reset');
+  const markOpen = el('markOpen');
+
+  function save() { localStorage.setItem(stateKey, JSON.stringify(state)); }
+  function fmt2(n){ return n.toString().padStart(2,'0'); }
+
+  function updateDisplay() {
+    let remainingMs = 0;
+    if (state.running && !state.paused) {
+      remainingMs = Math.max(0, state.endTime - Date.now());
+    } else if (state.paused && state.remaining != null) {
+      remainingMs = Math.max(0, state.remaining);
+    } else {
+      remainingMs = 0;
+    }
+
+    const hrs = Math.floor(remainingMs / 3600000);
+    const mins = Math.floor((remainingMs % 3600000) / 60000);
+    const secs = Math.floor((remainingMs % 60000) / 1000);
+    cd.textContent = `${fmt2(hrs)}:${fmt2(mins)}:${fmt2(secs)}`;
+
+    if (state.endTime) {
+      const d = new Date(state.endTime);
+      endsAt.textContent = d.toLocaleString([], { hour: '2-digit', minute: '2-digit', weekday: 'short', day:'2-digit', month:'short' });
+    } else {
+      endsAt.textContent = '—';
+    }
+
+    if (!state.running && !state.paused && remainingMs === 0) {
+      status.textContent = 'Idle';
+      status.className = 'muted';
+      pauseResume.textContent = 'Pause';
+      return;
+    }
+
+    if (state.paused) {
+      status.textContent = 'Paused';
+      status.className = 'bad';
+      pauseResume.textContent = 'Resume';
+    } else if (remainingMs === 0 && state.running) {
+      status.textContent = 'Complete — eating window open';
+      status.className = 'ok';
+      pauseResume.textContent = 'Pause';
+    } else {
+      status.textContent = 'Running';
+      status.className = '';
+      pauseResume.textContent = 'Pause';
+    }
+  }
+
+  function startHours(hours) {
+    const now = Date.now();
+    state.running = true;
+    state.paused = false;
+    state.startTime = now;
+    state.endTime = now + hours * 3600000;
+    state.remaining = null;
+    save();
+    updateDisplay();
+  }
+
+  function pause() {
+    if (!state.running || state.paused) return;
+    state.paused = true;
+    state.remaining = Math.max(0, state.endTime - Date.now());
+    save();
+    updateDisplay();
+  }
+
+  function resume() {
+    if (!state.running || !state.paused) return;
+    state.paused = false;
+    state.endTime = Date.now() + (state.remaining ?? 0);
+    state.remaining = null;
+    save();
+    updateDisplay();
+  }
+
+  function reset() {
+    state.running = false;
+    state.paused = false;
+    state.startTime = null;
+    state.endTime = null;
+    state.remaining = null;
+    save();
+    updateDisplay();
+  }
+
+  // Button handlers
+  btn17.addEventListener('click', () => startHours(17));
+  btn16.addEventListener('click', () => startHours(16));
+  btnStartCustom.addEventListener('click', () => {
+    const h = parseFloat(customHours.value);
+    if (!isNaN(h) && h > 0 && h <= 48) startHours(h);
+  });
+
+  pauseResume.addEventListener('click', () => {
+    if (!state.running) return;
+    if (state.paused) resume(); else pause();
+  });
+
+  resetBtn.addEventListener('click', reset);
+
+  markOpen.addEventListener('click', () => {
+    state.running = false;
+    state.paused = false;
+    save();
+    updateDisplay();
+    alert('Marked as complete. Eating window open.');
+  });
+
+  // Ticker
+  updateDisplay();
+  setInterval(updateDisplay, 500);
+})();
+</script>
+</body>
+</html>
