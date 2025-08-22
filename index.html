@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fasting Timer – FlipDots + Retro Clock</title>
+<meta name="color-scheme" content="dark">
+<style>
+  :root{
+    --bg:#000;
+    --card:#0a0a0a;
+    --text:#eaeef5;
+    --muted:#9aa3ae;
+    --p1:#f97316;  /* 0–3h BM rising */
+    --p2:#60a5fa;  /* 3–9h BM drops */
+    --p3:#a78bfa;  /* 9–11h gluconeogenesis */
+    --p4:#22c55e;  /* 11–14h fat burning */
+    --p5:#eab308;  /* 14–16h ketosis */
+    --p6:#ef4444;  /* 16h+ autophagy */
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif;
+    display:grid; place-items:center; padding:20px;
+  }
+  .wrap{ width:min(860px,95vw); display:grid; gap:18px; }
+  .card{ background:var(--card); border:1px solid #121212; border-radius:16px; padding:18px; box-shadow: 0 10px 30px rgba(0,0,0,.5); }
+
+  .stage{ position:relative; aspect-ratio:1/1; width:min(520px, 90vw); margin:0 auto; }
+  svg{ width:100%; height:100%; display:block; }
+  .dot{ opacity:.4; }
+  .dot.active{ opacity:1; filter: drop-shadow(0 0 6px rgba(255,255,255,.25)) drop-shadow(0 0 10px currentColor); }
+  .p1{ fill:var(--p1); color:var(--p1); }
+  .p2{ fill:var(--p2); color:var(--p2); }
+  .p3{ fill:var(--p3); color:var(--p3); }
+  .p4{ fill:var(--p4); color:var(--p4); }
+  .p5{ fill:var(--p5); color:var(--p5); }
+  .p6{ fill:var(--p6); color:var(--p6); }
+
+  /* Center retro digital clock */
+  .clock{
+    position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
+    width:58%; max-width:380px; min-width:220px;
+    text-align:center;
+  }
+  .digital{
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Courier New", monospace;
+    letter-spacing: .08em;
+    font-size: clamp(28px, 7vw, 52px);
+    color:#ffedd5;
+    text-shadow:
+      0 0 2px rgba(255,186,120,.35),
+      0 0 6px rgba(255,186,120,.25),
+      0 0 18px rgba(255,100,20,.20);
+    padding: 8px 12px;
+    border-radius: 8px;
+    background: linear-gradient(180deg, rgba(255,255,255,.04), rgba(0,0,0,.08));
+    border: 1px solid rgba(255,255,255,.06);
+  }
+  .eta{ text-align:center; color:var(--muted); font-size:13px; margin-top:10px; }
+
+  /* Controls */
+  .row{ display:flex; gap:10px; flex-wrap:wrap; align-items:center }
+  button{
+    cursor:pointer; border:1px solid #2a2a2a; background:#121212; color:var(--text);
+    padding:10px 14px; border-radius:10px; font-weight:700;
+  }
+  button.primary{ background:#1a1a1a; border-color:#333; }
+  button.primary:hover{ outline:2px solid #22d3ee44; }
+  button.danger{ border-color:#3a1010; background:#180b0b; color:#fca5a5 }
+  input[type="number"]{ width:7rem; padding:10px 12px; border-radius:10px; border:1px solid #2a2a2a; background:#0f0f0f; color:#fff; }
+
+  .legend{ display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:8px; font-size:13px; }
+  @media (max-width:560px){ .legend{ grid-template-columns:1fr; } }
+  .item{ display:flex; align-items:center; gap:10px; color:#e5e7eb }
+  .sw{ width:16px; height:8px; border-radius:999px; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <div class="stage">
+        <svg viewBox="0 0 300 300" preserveAspectRatio="xMidYMid meet">
+          <defs>
+            <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+              <feDropShadow dx="0" dy="0" stdDeviation="2" flood-color="#000" flood-opacity="0.5"/>
+            </filter>
+          </defs>
+          <g id="dots" filter="url(#softShadow)"></g>
+        </svg>
+
+        <div class="clock">
+          <div class="digital" id="digital">00:00:00</div>
+        </div>
+      </div>
+      <div class="eta" id="eta">Ends at —</div>
+    </div>
+
+    <div class="card">
+      <div class="row" style="margin-bottom:10px">
+        <button class="primary" id="start17">Start 17h</button>
+        <button class="primary" id="start16">Start 16h</button>
+      </div>
+      <div class="row" style="margin-bottom:10px">
+        <input type="number" id="customHours" min="1" max="72" step="0.5" placeholder="Custom hours">
+        <button id="startCustom">Start custom</button>
+      </div>
+      <div class="row" style="margin-bottom:10px">
+        <button id="pauseBtn">Pause</button>
+        <button id="resumeBtn">Resume</button>
+        <button class="danger" id="resetBtn">Reset</button>
+      </div>
+
+      <div class="legend" style="margin-top:12px">
+        <div class="item"><span class="sw" style="background:var(--p1)"></span> 0–3 h: BM rising</div>
+        <div class="item"><span class="sw" style="background:var(--p2)"></span> 3–9 h: BM drops</div>
+        <div class="item"><span class="sw" style="background:var(--p3)"></span> 9–11 h: Switching to gluconeogenesis</div>
+        <div class="item"><span class="sw" style="background:var(--p4)"></span> 11–14 h: Fat burning</div>
+        <div class="item"><span class="sw" style="background:var(--p5)"></span> 14–16 h: Ketosis</div>
+        <div class="item"><span class="sw" style="background:var(--p6)"></span> 16 h+: Autophagy</div>
+      </div>
+    </div>
+  </div>
+
+<script>
+(function(){
+  const KEY='fast.flipdots.clock.v1';
+  let state = load() || {running:false, paused:false, start:0, end:0, remaining:0, totalHours:16};
+
+  const dotsG = document.getElementById('dots');
+  const eta = document.getElementById('eta');
+  const digital = document.getElementById('digital');
+
+  function buildDots(totalH){
+    dotsG.innerHTML='';
+    const N = Math.max(16, Math.ceil(totalH));
+    const cx = 150, cy = 150, R = 120, r = 5;
+    function phaseKey(i){
+      if(i>=1 && i<=3) return 'p1';
+      if(i>=4 && i<=9) return 'p2';
+      if(i>=10 && i<=11) return 'p3';
+      if(i>=12 && i<=14) return 'p4';
+      if(i>=15 && i<=16) return 'p5';
+      if(i>16) return 'p6';
+      return '';
+    }
+    for(let i=0;i<N;i++){
+      const a=(i/N)*Math.PI*2 - Math.PI/2;
+      const x=cx+Math.cos(a)*R, y=cy+Math.sin(a)*R;
+      const c=document.createElementNS('http://www.w3.org/2000/svg','circle');
+      c.setAttribute('cx',x); c.setAttribute('cy',y); c.setAttribute('r',r);
+      c.setAttribute('class',`dot ${phaseKey(i+1)}`);
+      dotsG.appendChild(c);
+    }
+  }
+
+  function lightDots(totalH, remainingMs){
+    const N = Math.max(16, Math.ceil(totalH));
+    const elapsed = Math.min(totalH, (totalH*3600000 - remainingMs)/3600000);
+    const lit = Math.floor((elapsed/totalH)*N);
+    const dots = dotsG.querySelectorAll('circle.dot');
+    dots.forEach((c,i)=>{
+      if(i<lit){ c.classList.add('active'); }
+      else { c.classList.remove('active'); }
+    });
+  }
+
+  function fmt2(n){ return String(n).padStart(2,'0'); }
+  function setClock(ms){
+    const hrs = Math.floor(ms/3600000);
+    const mins = Math.floor((ms%3600000)/60000);
+    const secs = Math.floor((ms%60000)/1000);
+    digital.textContent = `${fmt2(hrs)}:${fmt2(mins)}:${fmt2(secs)}`;
+  }
+
+  function startHours(h){
+    const now=Date.now();
+    state={running:true,paused:false,start:now,end:now+h*3600000,remaining:0,totalHours:h};
+    save(); buildDots(h); tick();
+  }
+  function pause(){ if(!state.running||state.paused) return; state.paused=true; state.remaining=Math.max(0,state.end-Date.now()); save(); tick(); }
+  function resume(){ if(!state.running||!state.paused) return; state.paused=false; state.end=Date.now()+(state.remaining||0); state.remaining=0; save(); tick(); }
+  function reset(){ state={running:false,paused:false,start:0,end:0,remaining:0,totalHours:16}; save(); buildDots(16); lightDots(16,16*3600000); setClock(0); eta.textContent='Ends at —'; }
+
+  function tick(){
+    if(!state.running && !state.paused){
+      lightDots(state.totalHours, state.totalHours*3600000);
+      setClock(0);
+      return;
+    }
+    if(state.paused){
+      lightDots((state.end-state.start)/3600000, state.remaining||0);
+      setClock(state.remaining||0);
+      eta.textContent='Paused';
+      return;
+    }
+    const total = (state.end - state.start)||1;
+    const rem = Math.max(0, state.end - Date.now());
+    lightDots(total/3600000, rem);
+    setClock(rem);
+    eta.textContent = rem>0 ? ('Ends at ' + new Date(state.end).toLocaleString([], {hour:'2-digit', minute:'2-digit'})) : 'Complete — eating window open';
+  }
+
+  document.getElementById('start17').addEventListener('click', ()=> startHours(17));
+  document.getElementById('start16').addEventListener('click', ()=> startHours(16));
+  document.getElementById('startCustom').addEventListener('click', ()=>{
+    const v=parseFloat(document.getElementById('customHours').value);
+    if(!isNaN(v)&&v>0&&v<=72) startHours(v);
+  });
+  document.getElementById('pauseBtn').addEventListener('click', pause);
+  document.getElementById('resumeBtn').addEventListener('click', resume);
+  document.getElementById('resetBtn').addEventListener('click', reset);
+
+  function save(){ try{ localStorage.setItem(KEY, JSON.stringify(state)); }catch(e){} }
+  function load(){ try{ return JSON.parse(localStorage.getItem(KEY)); }catch(e){ return null; } }
+
+  // Init
+  buildDots(state.totalHours||16);
+  tick();
+  setInterval(tick, 1000);
+})();
+</script>
+</body>
+</html>
